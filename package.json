@@ -6,8 +6,10 @@
     "homepage": "https://github.com/bioimagesuiteweb/bisweb",
     "scripts": {
         "test": "mocha test",
-        "bisweb" : "node js/bin/bisweb.js",
-        "localtest" : "mocha test/test_module.js --input local"
+        "bisweb": "node js/bin/bisweb.js",
+        "localtest": "mocha test/test_module.js --input local",
+        "serve": "gulp serve",
+        "build": "gulp build"
     },
     "keywords": [
         "Neuroimaging",
@@ -53,6 +55,7 @@
         "otplib": "10.0.1",
         "pako": "1.0.7",
         "platform": "1.3.5",
+        "regression": "^2.0.1",
         "request": "2.88.0",
         "rimraf": "2.6.2",
         "save-svg-as-png": "^1.4.14",

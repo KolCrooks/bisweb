@@ -1266,6 +1266,15 @@ const bisGUIConnectivityControl = function(parent,orthoviewer,layoutmanager) {
                                },
                              });
 
+        webutil.createbutton({ type : "info",
+                             name : "graphs",
+                             position : "bottom",
+                             css : { "margin": "5px"},
+                             tooltip : "Click this to display the scatterplot",
+                             parent : bbar3,
+                             callback : connectvis.drawModelData
+                           });
+
 
         
 
