@@ -906,10 +906,12 @@ let drawModelData = function(){
     let svgModal = $('.ChartContainer');
     
     dim[0] = displayArea.innerWidth()-displayArea.css("padding").replace(/[a-zA-Z]/g,"")*2;
-    
+
     globalParams.mode='chord'; //what does this do
 
     //Some CSS for the charts
+    
+    /* #region CSS */
     $(`<style type='text/css'>
             .ChartContainer{
                 justify-content: space-evenly;
@@ -956,59 +958,102 @@ let drawModelData = function(){
                 stroke-dasharray: 4;
                 pointer-events: none;
             }
+
+            .overlay {
+                opacity: 0.3;
+            }
+
+            .scatterplotChart:drag-over {
+                opacity: 0.5;
+            }
+
+            .histogramChart:drag-over {
+                opacity: 0.5;
+            }
+
+            .label {
+                font-size: 15px;
+            }
     </style>`).appendTo("head");
-
-    //Create data for scatterchart
-    let scatterData = [];
-
-    for(let i = 0; i < 100; i++){
-        scatterData.push({x:randn_bm(), y: randn_bm()});
-    }
+    /* #endregion */
 
     //Draw the Scatterplot to the svgModal Div
-    createScatter(scatterData, svgModal, dim);
-
-    //Create the histogram data
-    let histoData = []
-    let groups = 2;
-    for(let i = 0; i < groups; i++)
-        for(let f = 0; f < 1000; f++)
-            histoData.push({
-                group: "group " + i,
-                val: randn_bm() * (i+1)
-            })
-
+    createScatter(svgModal, dim);
+    
     // Draw the Histogram to the svgModal Div
-    createHistogram({
-        data: histoData,
-        colors: ['#1995e8','#e81818']
-    }, svgModal, dim);
+    createHistogram(svgModal, dim);
+    
+    svgModal.bind('drop',(data) =>{
+        const reader = new FileReader();
+
+        /**
+         * @type {DragEvent}
+         */
+        let event = data.originalEvent;
+        event.preventDefault();
+        console.log('DROPPED DATA', event);
+        reader.readAsText(event.dataTransfer.files[0]);
+
+        reader.onloadend = (ev)=>{
+            if(ev.target.readyState != 2) return;
+            if(ev.target.error) {
+                alert('Error while reading file');
+                return;
+            }
+    
+            let jsonData = ev.target.result;
+            console.log('--LOADED FILE--');
+
+
+            let dataToParse = JSON.parse(jsonData); 
+
+            /* #region Scatterplot Data Construction*/
+            let scatterData = [];
+
+            for(let i = 0; i < dataToParse.scatterplotData[0].values.length; i++){
+                scatterData.push([
+                    dataToParse.scatterplotData[0].values[i],
+                    dataToParse.scatterplotData[1].values[i]
+                ]);
+            }
+            /* #endregion */
+            
+            // Draw the Histogram to the svgModal Div
+            $('#scatterplotChart').trigger('changeData', {scatterData});
+
+            /* #region histogram Data Construction */
+            let histoData = {
+                groups: [],
+                data_array: [],
+                data_groups: {}
+            };
+
+            dataToParse.histogramData.forEach((val_group)=>{
+                histoData.groups.push(val_group.name);
+                histoData.data_array.push(val_group.values);
+                histoData.data_groups[val_group.name] = val_group.values;
+            });
+            /* #endregion */
+
+
+            // Draw the Histogram to the svgModal Div
+            $('#histogramChart').trigger('changeData',{
+                data: histoData,
+                colors: ['#1995e8','#e81818']
+            });
+
+        };
+    });
 
     globalParams.displayDialog.show();
 };
 
 /**
- * Random Number Generator with Normal distribution for testing
- * (Found online)
- */
-function randn_bm() {
-    var u = 0, v = 0;
-    while(u === 0) u = Math.random(); //Converting [0,1) to (0,1)
-    while(v === 0) v = Math.random();
-    let num = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
-    num = num / 10.0 + 0.5; // Translate to 0 -> 1
-    if (num > 1 || num < 0) return randn_bm(); // resample between 0 and 1
-    return num;
-}
-
-/**
  * 
- * @param {Point[]} data 
  * @param {JQuery<Element>} parentDiv 
  * @param {number[]} dim 
- * @param {boolean} doRegression 
  */
-let createScatter = function(data, parentDiv, dim, doRegression = true){
+let createScatter = function(parentDiv, dim){
     globalParams.Id=webutil.getuniqueid();
     
     //Some Size Settings
@@ -1017,7 +1062,7 @@ let createScatter = function(data, parentDiv, dim, doRegression = true){
     let innerDim = svgDim - sizeOffset;
     
     //Create the svg that will contain the scatter chart
-    let scatterChart = d3.select(parentDiv[0]).append("svg")
+    let scatterChart = d3.select(parentDiv[0]).append("svg").attr("id",'scatterplotChart')
                         .attr("width", svgDim)
                         .attr("height", svgDim)
                         .append("g")
@@ -1026,9 +1071,10 @@ let createScatter = function(data, parentDiv, dim, doRegression = true){
 
 
     //Setup x-Scale and x-Axis
-    let xMax = d3.max(data,function(d){ return d.x; });
+    let xMax = 1;
+    let xMin = 0;
     let xScale = d3.scale.linear()
-                .domain([0, xMax*1.05])
+                .domain([-1, xMax*1.05])
                 .range([0,innerDim-sizeOffset*1.25]);
     
     let xAxis = d3.svg.axis()
@@ -1038,7 +1084,7 @@ let createScatter = function(data, parentDiv, dim, doRegression = true){
                 
     //Setup y-Scale and y-Axis
     let yScale = d3.scale.linear()
-                .domain([0, d3.max(data,function(d){ return d.y; })])
+                .domain([0, 1])
                 .range([innerDim-sizeOffset,0]);
 
     let yAxis = d3.svg.axis()
@@ -1056,81 +1102,75 @@ let createScatter = function(data, parentDiv, dim, doRegression = true){
                 .attr("transform", `translate(${sizeOffset},0)`)
                 .call(yAxis);
 
-    //Add axis labels
     scatterChart.append('text')
-                .text("Observed")
-                .attr("transform", `translate(${svgDim/2},${innerDim})`);
-    
-    scatterChart.append('text')
-                .text("Predicted")
-                .attr("transform", `translate(0,${innerDim/2})rotate(-90)`);
+                .text('Predicted')
+                .attr("transform", `translate(${svgDim/2},${innerDim})`)
+                .attr('class','x label');
 
-    //Create infobox for hover data if it doesnt exist
-    if(!d3.select('.infobox')[0][0])
-        d3.select("body").append('div')
-            .attr("class","infobox");
+scatterChart.append('text')
+                .text('Actual')
+                .attr("transform", `translate(0,${innerDim/2})rotate(-90)`)
+                .attr('class','y label');
 
+    let genScatter = (points, lobf) =>{
+    console.log({points})
+    scatterChart.selectAll('.dot').remove();
     //Add the dots to the scatterchart
-    scatterChart.selectAll('circle')
-                .data(data)
-             .enter().append('circle')
+    let dots = scatterChart.selectAll('circle')
+                .data(points);
+             dots.enter().append('circle')
                 .attr('cx',function(d){
-                    return xScale(d.x)+sizeOffset;
+                    return xScale(d[0])+sizeOffset;
                 })
                 .attr('cy',function(d){
-                    return yScale(d.y);
+                    return yScale(d[1]);
                 })
+                .attr('r',0)
+                .attr('class','dot')
                 .attr('fill', "red")
-                .on("mouseover", function(d) {
-                    //Add Outline to the circle
-                    let target = d3.event.target;
-                    target.style.stroke = "black";
-                    
-                    //Select infobox and get its height
-                    let info = d3.select('.infobox');
-                    let heightOffset = $('.infobox').height();
-                    
-                    //Add data to the div
-                    info.html(`x:${d.x.toFixed(2)}<br>y:${d.y.toFixed(2)}</br>`)
-                    
-                    //Change some styles
-                    info.style('transform',`translate(${d3.event.x}px,${d3.event.y-heightOffset}px)`);
-                    info.style('background-color',"red")
-                    info.style('display',"block");
-                })
-                .on("mouseout", function() {		
-                    //Remove Outline from the circle
-                    let target = d3.event.target;
-                    target.style.stroke = "unset";
-
-                    //hide the infobox
-                    let info = d3.select('.infobox')
-                    info.style('display',"none");
-                })
                 .transition()
-                .attr('r',3)
-    
-    //Dont go further if you dont want to run the linear regression
-    if(!doRegression) return;
-    
-    //Move points from object[] to number[][] so that regression library can use data 
-    let arrayData = []
-    for(let o of data)
-        arrayData.push([o.x,o.y]);
-    
-    //Run regression
-    let linReg = regression.linear(arrayData);
-    let m = linReg.equation[0];
-    let b = linReg.equation[1];
-    console.log(linReg)
+                .attr('r', 1);
 
-    //Draw regression to the screen
-    scatterChart.append("line")
-            .attr("x1", xScale(0)+sizeOffset)
-            .attr("y1", yScale(b))
-            .attr("x2", xScale(xMax)+sizeOffset)
-            .attr("y2", yScale(m*xMax+b))
-            .attr("class","LOBF");
+    dots.exit().remove();
+        if(!lobf) return;
+        let { m, b } = lobf;
+
+        scatterChart.selectAll('.LOBF').remove();
+        //Draw regression to the screen
+        scatterChart.append("line")
+                .attr("x1", xScale(xMin)+sizeOffset)
+                .attr("y1", yScale(b))
+                .attr("x2", xScale(xMax)+sizeOffset)
+                .attr("y2", yScale(m*xMax+b))
+                .attr("class","LOBF");
+    };
+
+
+    genScatter([],null);
+
+    $('#scatterplotChart').bind('changeData', (e, dataGroup)=>{
+        let data = dataGroup.scatterData;
+        xMax = d3.max(data, d=> d[0])*1.025;
+        xMin = 0;
+
+        //Modify X Scale
+        xScale.domain([xMin,xMax]);
+    
+        xAxis.scale(xScale);
+        scatterChart.selectAll('.x.axis').call(xAxis);
+
+        //Modify Y Scale
+        yScale.domain([Math.min(0, d3.min(data, d => d[1])),d3.max(data, d=> d[1])*1.025]);
+
+        yAxis.scale(yScale);
+        scatterChart.selectAll('.y.axis').call(yAxis);
+
+        //Run linear regression
+        let reg = regression.linear(data);
+        
+        let lobf = {m: reg.equation[0], b: reg.equation[1]};
+        genScatter(data, lobf);
+    });
 };
 
 
@@ -1153,11 +1193,8 @@ let createScatter = function(data, parentDiv, dim, doRegression = true){
  * @param {number[]} dim dims of svg to be created
  * @param {number} binCnt number of bins
  */
-function createHistogram(histoData, parentDiv, dim, binCnt = 30){
+function createHistogram(parentDiv, dim, binCnt = 30){
     globalParams.Id=webutil.getuniqueid();
-
-    //Extract data from histoData object
-    let {colors = ['#1995e8','#e81818'], data} = histoData;
 
     //Size Settings
     let sizeOffset = 29;
@@ -1165,61 +1202,29 @@ function createHistogram(histoData, parentDiv, dim, binCnt = 30){
     let svgHeight = dim[1] - 150;
     let innerWidth = svgWidth - sizeOffset;
     let innerHeight = svgHeight - sizeOffset;
-    
-    //Map colors to group names for use in styling
-    let groupColor = {}
-    let colorCnt = 0;
-    for(let d of data){
-        if(!groupColor[d.group]){
-            let color;
-            if(!colors[colorCnt])
-                color = `rgb(${Math.random() * 256}, ${Math.random() * 256}, ${Math.random() * 256})`; 
-            else
-                color = colors[colorCnt];
-            colorCnt++;
-            groupColor[d.group] = color;
-        }
-    }
 
     //create the svg Parent and the graphic div that everything will be drawn to
-    let histoChart = d3.select(parentDiv[0]).append("svg")
+    let histoChart = d3.select(parentDiv[0]).append("svg").attr("id",'histogramChart')
                         .attr("width", svgWidth)
                         .attr("height", svgHeight)
                         .append("g")
                         .attr("id", globalParams.Id)
                         .attr("transform", `translate(${sizeOffset},${sizeOffset/2})`);
-    
-    
+
 
     //Create X Scale
     let xScale = d3.scale.linear()
             .range([0,innerWidth-sizeOffset*1.25])
-            .domain([0,d3.max(data,d=>d.val)])
-    
-    //Create Histogram Generator
-    let hist = d3.layout.histogram()
-                .value(function(d){ return d.val; })
-                .range(xScale.range())
-                .bins(xScale.ticks(binCnt));
-        
-                
-    //Create the bins
-    let bins = []
-    for(let g in groupColor){
-        let tempbin = hist(data.filter(t=>t.group == g))
-        tempbin['group'] = g;
-        bins.push(tempbin);
-    }
+            .domain([-1, 1]);
 
-
-    //Get maximum y value
-    let yMax = d3.max(bins, d1=> d3.max(d1, d => d.length * 1.025));
+    //Get maximum and minimum y value
+    let yMax = 1;
 
 
     //Create Y Scale
     var yScale = d3.scale.linear()
             .range([innerHeight-sizeOffset,0])
-            .domain([0,yMax]);
+            .domain([0, yMax * 1.025]);
             
     
     //Create Axes
@@ -1247,109 +1252,92 @@ function createHistogram(histoData, parentDiv, dim, binCnt = 30){
     histoChart.append('text')
             .text("Correlation (R)")
             .attr("transform", `translate(${svgWidth/2},${innerHeight})`)
+            .attr('class','x label');
 
     histoChart.append('text')
             .text("Count")
             .attr("transform", `translate(0,${innerHeight/2})rotate(-90)`)
+            .attr('class','x label');
 
+    //Add legend group to the histogram
+    let legend = histoChart.append('g').attr('class','legend');
 
     //Create infobox for hover data if it doesnt exist
     if(!d3.select('.infobox')[0][0])
         d3.select("body").append('div')
-            .attr("class","infobox")
+            .attr("class","infobox");
     
     //-------------------------------------
     //       Generate graph
     //-------------------------------------
-    let idTagCount = -1;
+    let genGraph = (bins, groupColor, means)=>{
+        histoChart.selectAll('.bar').remove();
+        console.log("GENING HISTOGRAM WITH BINS", bins);
+        console.log({xScale});
+        for(let i in bins){
+            let bin = bins[i];
+            let currBar = histoChart.selectAll(`.g${bin.group.replace(/\s/g,"")}.bar`).data(bin);
+            
+            currBar.enter().append("rect")
+                    .attr("x", d=>xScale(d.x)+sizeOffset)
+                    .attr("transform", `translate(0,${yScale(0)})`)
+                    .attr("width", (innerWidth-sizeOffset*1.25)/bin.length)
+                    .attr("class", `g${bin.group.replace(/\s/g,"")} bar`)
+                    .attr("fill", groupColor[bin.group])
+                    .on("mousemove", function(d) {
+                        //Get elements
+                        let target = d3.event.target;
+                        let info = d3.select('.infobox');
 
-    //Add each data group individualy
-    for(let i in bins){
-        let bin = bins[i];
-        histoChart.selectAll(`.g${bin.group.replace(/ /g,"")}.bar`)
-        .data(bin.filter((v,i) => i != 'group'))
-        .enter().append("rect")
-            .attr("x", 1)
-            .attr("transform", d => `translate(${xScale(d.x)+sizeOffset},${yScale(d.y)})`)
-            .attr("width", d => xScale(d.dx)-1)
-            .attr("class",`g${bin.group} bar`)
-            .attr("id",function(){
-                idTagCount++;
-                return bin.group+idTagCount;
-            })
-            .attr("fill", groupColor[bin.group])
-            .on("mousemove", function(d) {
-                //Get elements
-                let target = d3.event.target;
-                let info = d3.select('.infobox');
+                        //Get height of infobox so that it is above the mouse
+                        let heightOffset = $('.infobox').height();
 
-                //Get height of infobox so that it is above the mouse
-                let heightOffset = $('.infobox').height();
+                        //Move the infobox to the pointer
+                        info.style('transform',`translate(${d3.event.x}px,${d3.event.y-heightOffset}px)`);
 
-                //Move the infobox to the pointer
-                info.style('transform',`translate(${d3.event.x}px,${d3.event.y-heightOffset}px)`);
+                        //If mouse is still on the same element dont update text and style
+                        if(info.attr("data-attatched") == target.id) return;
 
-                //If mouse is still on the same element dont update text and style
-                if(info.attr("data-attatched") == target.id) return;
+                        //Set text
+                        info.html(`x:${d.x.toFixed(2)}<br>y:${d.y.toFixed(2)}</br>`);
 
-                //Set text
-                info.html(`x:${d.x.toFixed(2)}<br>y:${d.y.toFixed(2)}</br>`)
+                        //get New Height after text insertion
+                        heightOffset = $('.infobox').height();
 
-                //get New Height after text insertion
-                heightOffset = $('.infobox').height();
+                        //Change some styles
+                        info.style('transform',`translate(${d3.event.x}px,${d3.event.y-heightOffset}px)`);
+                        info.style('display',"block");
+                        info.style('background-color',groupColor[bin.group]);
 
-                //Change some styles
-                info.style('transform',`translate(${d3.event.x}px,${d3.event.y-heightOffset}px)`);
-                info.style('display',"block");
-                info.style('background-color',groupColor[bin.group]);
+                        //attatch infobox to element
+                        info.attr("data-attatched", target.id);
+                    })
+                    .on("mouseout", function() {		
+                        //hide the box
+                        let info = d3.select('.infobox');
+                        info.style('display',"none");
 
-                //attatch infobox to element
-                info.attr("data-attatched", target.id);
-            })
-            .on("mouseout", function() {		
-                //hide the box
-                let info = d3.select('.infobox')
-                info.style('display',"none");
-
-                //Detatch infobox
-                info.attr("data-attatched", 0);
-            })
-            .transition()
-            .attr("height", (d,i) => innerHeight-sizeOffset-yScale(d.y))
-
-        
-
-
-    }
-
-    //Sort bars so that smaller ones are in front of the larger ones
-    histoChart.selectAll(`.bar`)
-            .sort((a,b)=>{
-                return b.y-a.y;
-            })
-
-    //calcuale the mean of each datagroup
-    let means = [];
-    for(let binGroup in bins){
-        let a = 0;
-        let cnt = 0;
-        for(let g of bins[binGroup]){
-            if(g.y > 0){
-                a += g.x;
-                cnt++;
-            }
+                        //Detatch infobox
+                        info.attr("data-attatched", 0);
+                    }).attr("height",0)
+                    .transition().duration(1000).ease('sin-in-out')
+                    .attr("height", (d) => innerHeight-sizeOffset-yScale(d.y))
+                    .attr("transform", d => `translate(0,${yScale(d.y)})`);
+            currBar.exit().remove();
         }
-        means.push({
-            value: a/cnt,
-            group: bins[binGroup].group,
-            id: `avg${cnt}`
-        })
-    }
 
-    //Add mean lines to the histogram
-    histoChart.selectAll('.meanLine')
-            .data(means)
-            .enter().append('line')
+        //Sort bars so that smaller ones are in front of the larger ones
+        histoChart.selectAll(`.bar`)
+        .sort((a,b)=>{
+            return b.y-a.y;
+        });
+
+        //Add mean lines to the histogram
+        histoChart.selectAll('.meanLine').remove();
+
+        let meanline = histoChart.selectAll('.meanLine').data(means);
+        
+        meanline.enter().append('line')
                 .attr("class", d => `g${d.group} meanLine`)
                 .attr("id", d => d.id)
                 .attr("x1", d => xScale(d.value+bins[0][0].dx/2)+sizeOffset)
@@ -1357,41 +1345,121 @@ function createHistogram(histoData, parentDiv, dim, binCnt = 30){
                 .attr("y1", yScale(0))
                 .attr("y2", yScale(yMax));
 
-    //Add the tag displays the mean of each group
-    histoChart.selectAll('.meanTag')
-            .data(means)
-            .enter().append('text')
-            .text(d => `Mean: ${d.value.toFixed(2)}`)
-            .attr("fill", d => groupColor[d.group])
-            .attr("transform", d => `translate(${xScale(d.value)+sizeOffset},0)`)
-            .attr('class','meanTag')
+        meanline.exit().remove();
 
-    //Add legend group to the histogram
-    let legend = histoChart.append('g').attr('class','legend');
+        //Add the tag displays the mean of each group
+        histoChart.selectAll('.meanTag').remove();
+
+        let meanTag = histoChart.selectAll('.meanTag').data(means);
+
+        meanTag.enter().append('text')
+                .text(d => `Mean: ${d.value.toFixed(2)}`)
+                .attr("fill", d => groupColor[d.group])
+                .attr("transform", d => `translate(${xScale(d.value)+sizeOffset},0)`)
+                .attr('class','meanTag');
+
+        meanTag.exit().remove();
+
+        //convert object to Object[]
+        let groupColorArr = [];
+        for(let i in groupColor)
+            groupColorArr.push({name:i,color:groupColor[i]});
+
+        console.log(legend);
+        //Move legend to the front
+        legend.each(function(){
+            
+            this.parentNode.appendChild(this);
+        });
+
+        //Add a color dot for each group to the legend
+        let colorTag = legend.selectAll('.colorTag').data(groupColorArr);
+        colorTag.enter().append('circle')
+                .attr('r', 3)
+                .attr('fill', d => d.color)
+                .attr('transform', (d,i) => `translate(${sizeOffset*2},${(i+1)*12})`)
+                .attr('class','colorTag');
+
+        colorTag.exit().remove();
+
+        //Add a name to the legend for each color dot
+        let groupTag = legend.selectAll('.groupTag').data(groupColorArr);
+        groupTag.enter().append('text')
+                .text(d=>d.name)
+                .attr('transform', (d,i) => `translate(${sizeOffset*2+5},${(i+1)*12+2})`)
+                .attr('class','groupTag');
+                    
+        groupTag.exit().remove();
+    };
+
+    genGraph([], [], []);
+
+    $('#histogramChart').bind('changeData', (e, newData)=>{
+        let { colors = ['#1995e8','#e81818'], data } = newData;
+        
+        //Map colors to group names for use in styling
+        let groupColor = {};
+        let colorCnt = 0;
+        for(let group of data.groups){
+                let color;
+                if(!colors[colorCnt])
+                    color = `rgb(${Math.random() * 256}, ${Math.random() * 256}, ${Math.random() * 256})`; 
+                else
+                    color = colors[colorCnt];
+                colorCnt++;
+                groupColor[group] = color;
+        }
+
+        //Modify X Scale
+        xScale.domain([Math.min(0, d3.min(data.data_array, d => d3.min(d))),d3.max(data.data_array, d=> d3.max(d))*1.025]);
     
-    //convert object to Object[]
-    let groupColorArr = [];
-    for(let i in groupColor)
-        groupColorArr.push({name:i,color:groupColor[i]});
+        xAxis.scale(xScale);
+        histoChart.selectAll('.x.axis').call(xAxis);
 
-    //Add a color dot for each group to the legend
-    legend.selectAll('.colorTag')
-            .data(groupColorArr)
-            .enter().append('circle')
-            .attr('r', 3)
-            .attr('fill', d => d.color)
-            .attr('transform', (d,i) => `translate(${svgWidth-sizeOffset*4},${(i+1)*12})`)
-            .attr('class','colorTag');
+        //Create Histogram Generator
+        let hist = d3.layout.histogram()
+                    .bins(xScale.ticks(binCnt));
 
-    //Add a name to the legend for each color dot
-    legend.selectAll('.groupTag')
-            .data(groupColorArr)
-            .enter().append('text')
-            .text(d=>d.name)
-            .attr('transform', (d,i) => `translate(${svgWidth-sizeOffset*4+5},${(i+1)*12+2})`)
-            .attr('class','groupTag');
-                
-                
+        //Create the bins
+        let bins = [];
+        for(let g in data.data_groups){
+            console.log(data.data_groups);
+            let tempbin = hist(data.data_groups[g]);
+            tempbin['group'] = g;
+            bins.push(tempbin);
+        }
+        console.log(bins);
+        //Get maximum y value
+        yMax = d3.max(bins, d1=> d3.max(d1, d => d.length));
+
+        //Modify Y Scale
+        yScale.domain([0, yMax * 1.025]);
+
+        yAxis.scale(yScale);
+        histoChart.selectAll('.y.axis').call(yAxis);
+
+
+    
+        //calcuale the mean of each datagroup
+        let means = [];
+        for(let binGroup in bins){
+            let a = 0;
+            let cnt = 0;
+            for(let g of bins[binGroup]){
+                if(g.y > 0){
+                    a += g.x;
+                    cnt++;
+                }
+            }
+            means.push({
+                value: a/cnt,
+                group: bins[binGroup].group,
+                id: `avg${cnt}`
+            });
+        }
+    
+        genGraph(bins, groupColor, means);
+    });
 }
 
 
