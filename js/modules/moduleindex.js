@@ -20,6 +20,7 @@
 const moduleImports = {
     
     smoothimage : require('smoothImage.js'),
+    bilateralfilter : require('bilateralFilter.js'),
     qualitymeasures : require('qualityMeasures.js'),
     gradientimage : require('gradientImage.js'),
     thresholdimage : require('thresholdImage.js'),

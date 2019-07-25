@@ -188,6 +188,175 @@ var smoothImage = function(input, sigmas, inmm, radiusfactor,outdata,vtkboundary
     return output;
 };
 
+/**
+ * @param {BisImage} src input image
+ * @param {number} radius integer
+ * @param {number} rvar double
+ * @param {number} svar double
+ * @param {number} numiter integer
+ * @returns {BisImage} out - smooth image
+ */
+var BilateralFilter = function(src, radius, rvar, svar, numiter) {
+    console.log('----- SMOOTHING WITH NEW ALGORITHM -----');
+    let dest = new BisWebImage();
+	dest.cloneImage(src, { type: 'float' });
+	let nx = 0, mx = 0, z = 0;
+	let u = 0, x = 0, w = 0, d = 0, s1 = 0, s2 = 0, tiny = 1.0e-10;
+	let b, r, c, bb, rr, cc, m, k, l, iter;
+
+
+	/* ini dest image */
+	let dims = src.getImageSize();
+	let nbands = dims[2]; //I think that this is the depth of the image
+	let nrows = dims[1]; //Height of image
+	let ncols = dims[0]; //Width of image
+
+    let image_out = dest.getImageData();
+
+    /* get max neighbourhood size */
+	nx = 0;
+	let wn = radius - 1;
+	for (m = -radius; m <= radius; m++) {
+		for (k = -radius; k <= radius; k++) {
+			for (l = -radius; l <= radius; l++) {
+				if ((Math.abs(m) > wn && Math.abs(k) > wn && Math.abs(l) > wn)) continue;
+				nx++;
+			}
+		}
+    }
+    let log = [];
+/*r=y c=x b=z*/
+	/* loop through voxels */
+	for (iter = 0; iter < numiter; iter++) {
+
+        for (b = radius; b < nbands - radius; b++) {
+			for (r = radius; r < nrows - radius; r++) {
+				for (c = radius; c < ncols - radius; c++) {
+
+					x = getPixel(src, b, r, c); //Get pixel as float at band b, row r, and column c
+					if (Math.abs(x) < tiny) continue;
+
+					mx = 0;
+					s1 = s2 = 0;
+					for (m = -radius; m <= radius; m++) {
+						bb = b + m;
+						for (k = -radius; k <= radius; k++) {
+							rr = r + k;
+							for (l = -radius; l <= radius; l++) {
+								cc = c + l;
+								if ((Math.abs(m) > wn && Math.abs(k) > wn && Math.abs(l) > wn)) continue;
+
+								u = getPixel(src, bb, rr, cc); //Get pixel as float at band bb, row rr, and column cc
+								if (Math.abs(u) < tiny) continue;
+
+								d = m * m + k * k + l * l;
+								z = (x - u) * (x - u) / rvar + d / svar;
+
+								w = fastexp(-z);
+								s1 += u * w;
+								s2 += w;
+								mx++;
+							}
+						}
+					}
+					z = 0;
+
+					/* bilateral filter if local neighbourhood mostly inside the brain */
+					if ((s2 > 0) && (mx / nx > 0.5)) {
+						z = s1 / s2;
+					}
+
+					/* median filter if local neighbourhood partly outside of brain */
+					else {
+						z = XMedian18(src, b, r, c);
+					}
+
+                    image_out[c + r * ncols + b * ncols * nrows] = z;
+                    log.push(c + r * ncols + b * ncols * nrows);
+				}
+			}
+        }
+        console.log({log})
+		if (iter < numiter - 1 && numiter > 1) return dest; //Return the smoothed image
+	}
+}
+
+/**
+ * Approximate an exponential function
+ * @param {number} x 
+ */
+function fastexp(x) {
+	x = 1.0 + x / 2048.0;
+	x *= x; x *= x; x *= x; x *= x;
+	x *= x; x *= x; x *= x; x *= x;
+	x *= x; x *= x; x *= x;
+	return x;
+}
+
+/**
+ * Median filter in 18-adj neighbourhood 
+ * @param {BisImage} src 
+ * @param {number} b integer (band)
+ * @param {number} r integer (row)
+ * @param {number} c integer (column)
+ */
+function XMedian18(src, b, r, c) {
+	let bb, rr, cc, m, k, l;
+	let u = 0, z = 0, tiny = 1.0e-6;
+	let data = [];
+
+	let n = 0;
+	for (m = -1; m <= 1; m++) {
+		bb = b + m;
+		for (k = -1; k <= 1; k++) {
+			rr = r + k;
+			for (l = -1; l <= 1; l++) {
+				cc = c + l;
+				if (Math.abs(m) > 0 && Math.abs(k) > 0 && Math.abs(l) > 0) continue;
+				u = getPixel(src, bb, rr, cc); //Get pixel of source image at band bb, row rr, column cc as float
+				if (Math.abs(u) < tiny) continue;
+				data[n] = u;
+				n++;
+			}
+		}
+	}
+	z = 0;
+
+	if (n > 9) z = median(data, n);
+	return z;
+}
+
+function median(values) {
+	if (values.length === 0) return 0;
+
+	values.sort((a, b) => {
+		return a - b;
+	});
+
+	var half = Math.floor(values.length / 2);
+
+	if (values.length % 2)
+		return values[half];
+
+	return (values[half - 1] + values[half]) / 2.0;
+}
+
+/**
+ * 
+ * @param {BisImage} src 
+ * @param {number} band 
+ * @param {number} row 
+ * @param {number} column 
+ */
+function getPixel(src, band, row, column) {
+	return src.getVoxel([
+		column,
+		row,
+		band,
+		0 //Time will always be 0
+	]);
+}
+
 // ------------------------------------------------------------------------------------------------
 // Interpolation Functions -- cache is defined below in resliceImage.
 // cache is an objet so it is always passed in by pointer
@@ -1000,6 +1169,7 @@ var computeDisplacementFieldRoundTripError = function(forward,reverse,bounds,deb
 
 const algo = { 
     smoothImage : smoothImage,
+    BilateralFilter : BilateralFilter,
     resampleImage : resampleImage,
     resliceImage: resliceImage,
     generateKernel : generateKernel,

@@ -891,10 +891,29 @@ var removelines = function() {
  * @property {number} y a point's Y pos
  */
 
+/**
+ * @typedef JsonInput
+ * @property {String} name name of the input
+ * @property {String} description description of the data group (I dont think that we need this)
+ * @property {number} id id of the file (I dont think that we need this)
+ * @property {JsonDataGroup[]} scatterplotData data relating to the scatter plot
+ * @property {JsonDataGroup[]} histogramData data relating to the histogram
+ * @property {*} modelPositive postitive model data
+ * @property {*} modelNegitive negitive model data
+ */        
+
+/**
+ * @typedef JsonDataGroup
+ * @property {String} name name of the data group
+ * @property {String} description description of the data group (I dont think that we need this)
+ * @property {number} id id of the group (I dont think that we need this)
+ * @property {number[]} values contains the value points for the group
+ */
+
 let drawModelData = function(){
 
     if (globalParams.internal.laststate === null) {
-        bootbox.alert('you need to create the lines before you do anything (IDK Why)');
+        bootbox.alert('you need to create the lines before you do anything (Need to fix)');
         return;
     }
 
@@ -1002,7 +1021,7 @@ let drawModelData = function(){
             }
     
             let jsonData = ev.target.result;
-            console.log('--LOADED FILE--');
+            console.log('----- LOADED FILE -----');
 
 
             let dataToParse = JSON.parse(jsonData); 
@@ -1113,7 +1132,7 @@ scatterChart.append('text')
                 .attr('class','y label');
 
     let genScatter = (points, lobf) =>{
-    console.log({points})
+
     scatterChart.selectAll('.dot').remove();
     //Add the dots to the scatterchart
     let dots = scatterChart.selectAll('circle')
@@ -1175,20 +1194,7 @@ scatterChart.append('text')
 
 
 /**
- * @typedef HisogramPoint
- * @property {number} val value of datapoint
- * @property {*} group group of the datapoint (for displaying multiple groups)
- */
-
-/**
- * @typedef HisogramData
- * @property {HisogramPoint[]} data values to be displayed
- * @property {String[]} colors colors in the chart
- */
-
-/**
  * draws a histogram in a given svg element
- * @param {HisogramData} histoData data to display
  * @param {JQuery<HTMLElement>} parentDiv element to attach histogram to
  * @param {number[]} dim dims of svg to be created
  * @param {number} binCnt number of bins
@@ -1272,8 +1278,6 @@ function createHistogram(parentDiv, dim, binCnt = 30){
     //-------------------------------------
     let genGraph = (bins, groupColor, means)=>{
         histoChart.selectAll('.bar').remove();
-        console.log("GENING HISTOGRAM WITH BINS", bins);
-        console.log({xScale});
         for(let i in bins){
             let bin = bins[i];
             let currBar = histoChart.selectAll(`.g${bin.group.replace(/\s/g,"")}.bar`).data(bin);
@@ -1365,7 +1369,6 @@ function createHistogram(parentDiv, dim, binCnt = 30){
         for(let i in groupColor)
             groupColorArr.push({name:i,color:groupColor[i]});
 
-        console.log(legend);
         //Move legend to the front
         legend.each(function(){
             
@@ -1423,12 +1426,11 @@ function createHistogram(parentDiv, dim, binCnt = 30){
         //Create the bins
         let bins = [];
         for(let g in data.data_groups){
-            console.log(data.data_groups);
             let tempbin = hist(data.data_groups[g]);
             tempbin['group'] = g;
             bins.push(tempbin);
         }
-        console.log(bins);
+
         //Get maximum y value
         yMax = d3.max(bins, d1=> d3.max(d1, d => d.length));
 
